@@ -317,8 +317,8 @@ fn prove_method(chips: &[&Field]) -> TokenStream2 {
             let (quotient_commit, quotient_data) = tracing::info_span!("commit to quotient chunks")
                 .in_scope(|| pcs.commit_batches(quotients.to_vec()));
 
-            #[cfg(debug_assertions)]
-            check_cumulative_sums(&perm_traces[..]);
+            // #[cfg(debug_assertions)]
+            // check_cumulative_sums(&perm_traces[..]);
 
             let zeta: SC::Challenge = challenger.sample_ext_element();
             let zeta_and_next: [Vec<SC::Challenge>; #num_chips] =

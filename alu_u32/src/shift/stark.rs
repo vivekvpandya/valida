@@ -44,6 +44,13 @@ where
         let temp_1 = (local.bits_2[0] * pow_base[0].clone())
             * (local.bits_2[1] * pow_base[1].clone())
             * (local.bits_2[2] * pow_base[2].clone());
+        // Uncomment following lines to check what are values in temp_1 and local.temp_1
+        // builder.assert_eq(AB::Expr::from_canonical_u32(4), temp_1.clone());
+        // builder.assert_eq(AB::Expr::from_canonical_u32(0), local.power_of_two[0]);
+        // builder.assert_eq(AB::Expr::from_canonical_u32(0), local.power_of_two[1]);
+        // builder.assert_eq(AB::Expr::from_canonical_u32(1), local.power_of_two[2]);
+        // builder.assert_eq(AB::Expr::from_canonical_u32(0), local.power_of_two[3]);
+        // builder.assert_eq(AB::Expr::from_canonical_u32(2), local.temp_1);
         builder.assert_eq(local.temp_1, temp_1);
         builder.assert_eq(
             local.power_of_two[0],

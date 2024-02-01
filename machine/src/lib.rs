@@ -17,10 +17,10 @@ mod proof;
 mod quotient;
 mod symbolic;
 
+pub use crate::core::*;
 pub use advice::*;
 pub use chip::*;
 pub use config::*;
-pub use core::*;
 pub use machine::*;
 pub use program::*;
 pub use proof::*;

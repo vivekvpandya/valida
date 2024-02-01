@@ -2,6 +2,7 @@ extern crate core;
 
 use p3_baby_bear::BabyBear;
 use valida_alu_u32::add::{Add32Instruction, MachineWithAdd32Chip};
+use valida_alu_u32::shift::Shr32Instruction;
 use valida_basic::BasicMachine;
 use valida_cpu::{
     BeqInstruction, BneInstruction, Imm32Instruction, JalInstruction, JalvInstruction,
@@ -254,4 +255,100 @@ fn prove_fibonacci() {
         *machine.mem().cells.get(&(0x1000 + 4)).unwrap(), // Return value
         Word([0, 1, 37, 17,])                             // 25th fibonacci number (75025)
     );
+}
+
+#[test]
+fn prove_shr() {
+    let mut program = vec![];
+
+    //main:                                   ; @main
+    //; %bb.0:
+    //	imm32	-4(fp), 0, 0, 0, 4
+    //	imm32	-8(fp), 0, 0, 0, 2
+    //	shr32   -16(fp), -4(fp), -8(fp), 0, 0
+    //	exit
+    //...
+    program.extend([
+        InstructionWord {
+            opcode: <Imm32Instruction as Instruction<BasicMachine<Val>, Val>>::OPCODE,
+            operands: Operands([-4, 0, 0, 0, 4]),
+        },
+        InstructionWord {
+            opcode: <Imm32Instruction as Instruction<BasicMachine<Val>, Val>>::OPCODE,
+            operands: Operands([-8, 0, 0, 0, 2]),
+        },
+        InstructionWord {
+            opcode: <Shr32Instruction as Instruction<BasicMachine<Val>, Val>>::OPCODE,
+            operands: Operands([-16, -4, -8, 0, 0]),
+        },
+        InstructionWord {
+            opcode: <StopInstruction as Instruction<BasicMachine<Val>, Val>>::OPCODE,
+            operands: Operands::default(),
+        },
+    ]);
+
+    let mut machine = BasicMachine::<Val>::default();
+    let rom = ProgramROM::new(program);
+    machine.program_mut().set_program_rom(&rom);
+    machine.cpu_mut().fp = 0x1000;
+    machine.cpu_mut().save_register_state(); // TODO: Initial register state should be saved
+                                             // automatically by the machine, not manually here
+    machine.run(&rom, &mut FixedAdviceProvider::empty());
+
+    assert_eq!(
+        *machine.mem().cells.get(&(0x1000 - 16)).unwrap(), // Return value
+        Word([0,0, 0, 1,])                             // 0x0100 >> 2 = 0x0001
+    );
+
+    type Val = BabyBear;
+    type Challenge = BinomialExtensionField<Val, 5>;
+    type PackedChallenge = BinomialExtensionField<<Val as Field>::Packing, 5>;
+
+    type Mds16 = CosetMds<Val, 16>;
+    let mds16 = Mds16::default();
+
+    type Perm16 = Poseidon<Val, Mds16, 16, 5>;
+    let perm16 = Perm16::new_from_rng(4, 22, mds16, &mut thread_rng()); // TODO: Use deterministic RNG
+
+    type MyHash = SerializingHasher32<Keccak256Hash>;
+    let hash = MyHash::new(Keccak256Hash {});
+
+    type MyCompress = CompressionFunctionFromHasher<Val, MyHash, 2, 8>;
+    let compress = MyCompress::new(hash);
+
+    type ValMmcs = FieldMerkleTreeMmcs<Val, MyHash, MyCompress, 8>;
+    let val_mmcs = ValMmcs::new(hash, compress);
+
+    type ChallengeMmcs = ExtensionMmcs<Val, Challenge, ValMmcs>;
+    let challenge_mmcs = ChallengeMmcs::new(val_mmcs.clone());
+
+    type Dft = Radix2Bowers;
+    let dft = Dft::default();
+
+    type Challenger = DuplexChallenger<Val, Perm16, 16>;
+
+    type Quotient = QuotientMmcs<Val, Challenge, ValMmcs>;
+    type MyFriConfig = FriConfigImpl<Val, Challenge, Quotient, ChallengeMmcs, Challenger>;
+    // TODO: Change log_blowup from 2 to 1 once degree >3 constraints are eliminated.
+    let fri_config = MyFriConfig::new(2, 40, 8, challenge_mmcs);
+    let ldt = FriLdt { config: fri_config };
+
+    type Pcs = FriBasedPcs<MyFriConfig, ValMmcs, Dft, Challenger>;
+    type MyConfig = StarkConfigImpl<Val, Challenge, PackedChallenge, Pcs, Challenger>;
+
+    let pcs = Pcs::new(dft, val_mmcs, ldt);
+
+    let challenger = Challenger::new(perm16);
+    let config = MyConfig::new(pcs, challenger);
+    let proof = machine.prove(&config);
+
+    let mut bytes = vec![];
+    ciborium::into_writer(&proof, &mut bytes).expect("serialization failed");
+    println!("Proof size: {} bytes", bytes.len());
+    let deserialized_proof: MachineProof<MyConfig> =
+        ciborium::from_reader(bytes.as_slice()).expect("deserialization failed");
+
+    BasicMachine::verify(&config, &proof).expect("verification failed");
+    BasicMachine::verify(&config, &deserialized_proof).expect("verification failed");
+
 }
